@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <title>🎯 Managing Capacity Challenge 🎯</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root { --blue: #3498db; --green: #27ae60; --yellow: #f1c40f; --orange: #e67e22; --purple: #9b59b6; }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab); background-size: 400% 400%; animation: gradient 15s ease infinite; color: #333; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        @keyframes gradient { 0% {background-position: 0% 50%;} 50% {background-position: 100% 50%;} 100% {background-position: 0% 50%;} }
+        
+        #game-ui { background: rgba(255, 255, 255, 0.95); padding: 30px; border-radius: 30px; width: 90%; max-width: 700px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); text-align: center; margin: 20px; }
+        #video { width: 320px; height: 240px; border-radius: 20px; border: 5px solid white; display: none; margin: 10px auto; }
+        .card-container { display: flex; justify-content: space-around; margin-top: 20px; }
+        .card { background: white; padding: 20px; border-radius: 20px; width: 40%; box-shadow: 0 10px 20px rgba(0,0,0,0.1); cursor: pointer; transition: 0.3s; }
+        .btn { padding: 20px 50px; font-size: 1.5rem; border: none; border-radius: 50px; background: var(--green); color: white; cursor: pointer; transition: 0.3s; font-weight: bold; }
+        .btn:hover { transform: scale(1.1); }
+        .feedback-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: none; justify-content: center; align-items: center; background: rgba(0,0,0,0.8); z-index: 100; color: white; }
+    </style>
+</head>
+<body>
+
+<div id="game-ui">
+    <div id="start-screen">
+        <h1>🎯 Managing Capacity Challenge 🎯</h1>
+        <p>Selamat Menjawab!</p>
+        <div style="text-align: left; background: #f0f8ff; padding: 20px; border-radius: 15px;">
+            📖 <b>Arahan:</b>
+            <ul>
+                <li>Pastikan wajah dapat dilihat kamera.</li>
+                <li>⬅️ Pilihan A (Toleh Kiri) | ➡️ Pilihan B (Toleh Kanan).</li>
+                <li>Tahan posisi kepala 1 saat untuk memilih.</li>
+            </ul>
+        </div>
+        <br><button class="btn" onclick="startGame()">🚀 MULA</button>
+    </div>
+
+    <div id="quiz-screen" style="display: none;">
+        <video id="video" autoplay playsinline></video>
+        <div id="status">👀 Mencari pergerakan...</div>
+        <h2 id="q-text">Loading...</h2>
+        <div class="card-container">
+            <div class="card" id="card-A"><b>Pilihan A</b><br><span id="opt-A"></span></div>
+            <div class="card" id="card-B"><b>Pilihan B</b><br><span id="opt-B"></span></div>
+        </div>
+        <p id="tracker">📋 Soalan 1/8</p>
+        <p>⭐ Betul: <span id="s-betul">0</span> | ❌ Salah: <span id="s-salah">0</span></p>
+    </div>
+</div>
+
+<div id="feedback-overlay" class="feedback-overlay"></div>
+
+<script>
+    const questions = [
+        {q: "Penggunaan ATM oleh pelanggan sendiri adalah contoh:", a: ["Time", "Customer Participation"], correct: 1},
+        {q: "Kedai makan buka lebih masa pada musim perayaan adalah contoh:", a: ["Menambah kapasiti melalui masa", "Mengurangkan kapasiti"], correct: 0},
+        {q: "Kilang ambil pekerja sambilan ketika permintaan tinggi:", a: ["Human Resources", "Pricing"], correct: 0},
+        {q: "Diskaun pada waktu kurang sibuk adalah contoh:", a: ["Demand Management", "Facility Expansion"], correct: 0},
+        {q: "Tujuan utama capacity planning:", a: ["Menghapuskan inventori", "Memastikan sumber mencukupi"], correct: 1},
+        {q: "Menggunakan syarikat luar (permintaan tinggi):", a: ["Scheduling", "Outsourcing"], correct: 1},
+        {q: "Contoh pengurusan permintaan:", a: ["Promosi waktu tidak sibuk", "Menutup kilang"], correct: 0},
+        {q: "Menambah mesin untuk tingkat output:", a: ["Demand Reduction", "Capacity Expansion"], correct: 1}
+    ];
+
+    let current = 0, betul = 0, salah = 0, waiting = false;
+
+    function startGame() {
+        document.getElementById('start-screen').style.display = 'none';
+        document.getElementById('quiz-screen').style.display = 'block';
+        document.getElementById('video').style.display = 'block';
+        initCamera();
+        loadQuestion();
+    }
+
+    function loadQuestion() {
+        if(current >= questions.length) return endResult();
+        document.getElementById('q-text').innerText = questions[current].q;
+        document.getElementById('opt-A').innerText = questions[current].a[0];
+        document.getElementById('opt-B').innerText = questions[current].a[1];
+        document.getElementById('tracker').innerText = `📋 Soalan ${current + 1}/${questions.length}`;
+        waiting = false;
+    }
+
+    function initCamera() {
+        const faceMesh = new FaceMesh({locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
+        faceMesh.onResults(res => {
+            if(waiting || !res.multiFaceLandmarks.length) return;
+            const nose = res.multiFaceLandmarks[0][1];
+            let choice = -1;
+            if(nose.x < 0.3) choice = 0; // Kiri
+            else if(nose.x > 0.7) choice = 1; // Kanan
+            
+            if(choice !== -1) {
+                waiting = true;
+                const isCorrect = (choice === questions[current].correct);
+                showFeedback(isCorrect);
+            }
+        });
+        new Camera(document.getElementById('video'), {onFrame: async () => await faceMesh.send({image: document.getElementById('video')}), width: 640, height: 480}).start();
+    }
+
+    function showFeedback(isCorrect) {
+        const overlay = document.getElementById('feedback-overlay');
+        overlay.style.display = 'flex';
+        overlay.style.background = isCorrect ? 'rgba(39, 174, 96, 0.9)' : 'rgba(231, 76, 60, 0.9)';
+        overlay.innerHTML = isCorrect ? '<h1>✅ BETUL!</h1><p>🎉 Hebat!</p>' : '<h1>❌ SALAH!</h1><p>😅 Cuba lagi!</p>';
+        if(isCorrect) { betul++; confetti(); } else { salah++; }
+        document.getElementById('s-betul').innerText = betul;
+        document.getElementById('s-salah').innerText = salah;
+        setTimeout(() => { overlay.style.display = 'none'; current++; loadQuestion(); }, 2000);
+    }
+
+    function endResult() {
+        let score = (betul/questions.length)*100;
+        document.getElementById('game-ui').innerHTML = `<h1>Tahniah!</h1><p>Markah Akhir: ${score}%</p><button class="btn" onclick="location.reload()">🔄 MAIN SEMULA</button>`;
+        confetti({particleCount: 300, spread: 150});
+    }
+</script>
+</body>
+</html>
